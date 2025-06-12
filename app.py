@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import time
+import json
 from data_fetcher import DataManager
 from recommender import SmartRecommender
 
@@ -116,7 +117,8 @@ if 'user_profile' in st.session_state and st.session_state.user_profile['liked_m
         for idx, row in recommendations.iterrows():
             col = cols[idx % 3]
             with col:
-                with st.container(border=True, height=450):
+                with st.container(border=True, height=550):
+                    # 海报和基本信息
                     if row['image']:
                         st.image(row['image'], use_column_width=True)
                     else:
@@ -125,6 +127,14 @@ if 'user_profile' in st.session_state and st.session_state.user_profile['liked_m
                     st.markdown(f"**{row['title']}** ({row['year']})")
                     st.caption(f"⭐ {row['rating']} | {row['source']}")
                     st.caption(f"类型: {row['genres']}")
+                    
+                    # 平台链接 - 核心新增功能
+                    st.markdown("### 观看平台")
+                    if 'platform_links' in row and isinstance(row['platform_links'], dict):
+                        for platform, link in row['platform_links'].items():
+                            st.markdown(f"- [{platform}]({link})", unsafe_allow_html=True)
+                    else:
+                        st.warning("暂无平台链接信息")
                     
                     # 交互按钮
                     btn_cols = st.columns([3,1])
@@ -176,7 +186,14 @@ if 'selected_movie' in st.session_state:
             st.subheader(f"({movie['year']}) | ⭐ {movie['rating']}")
             st.caption(f"来源: {movie['source']}")
             st.write(f"**类型**: {movie['genres']}")
-            st.write(f"**推荐理由**: 与您喜欢的'{st.session_state.user_profile['liked_movies'][0]}'有相似风格")
+            
+            # 显示平台链接
+            st.markdown("### 观看平台")
+            if 'platform_links' in movie and isinstance(movie['platform_links'], dict):
+                for platform, link in movie['platform_links'].items():
+                    st.markdown(f"- [{platform}]({link})", unsafe_allow_html=True)
+            else:
+                st.warning("暂无平台链接信息")
             
             if st.button("加入我的收藏", type="primary"):
                 if movie['title'] not in st.session_state.user_profile['liked_movies']:
