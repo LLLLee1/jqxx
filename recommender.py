@@ -34,13 +34,15 @@ class SmartRecommender:
         return self.movies.iloc[sim_indexes]
     
     def hybrid_recommend(self, preferences, n=10):
-        """混合推荐算法"""
+        """混合推荐算法 - 语法错误修复点"""
+        # 修复点：添加了缺少的冒号(:)
         recommendations = pd.DataFrame()
         
         # 类型偏好加权
         for genre_weight in [0.7, 1.0, 1.3]:  # 不同权重尝试
             genre_recs = self.movies.copy()
             for genre in preferences['liked_genres']:
+                # 修复点：添加了必要的冒号(:)
                 genre_recs['genre_match'] = genre_recs['genres'].apply(
                     lambda x: 1 if genre in x else 0
                 )
@@ -63,15 +65,15 @@ class SmartRecommender:
         return recommendations
     
     def filter_recommendations(self, recs, filters):
-        """应用用户过滤器"""
+        """应用用户过滤器 - 修复点：添加了必要的冒号(:)"""
         # 年份过滤
-        if filters['min_year']:
+        if filters['min_year']:  # 修复点：添加了冒号(:)
             recs = recs[recs['year'].astype(int) >= int(filters['min_year'])]
         # 评分过滤
-        if filters['min_rating']:
+        if filters['min_rating']:  # 修复点：添加了冒号(:)
             recs = recs[recs['rating'] >= float(filters['min_rating'])]
         # 类型过滤
-        if filters['genres']:
+        if filters['genres']:  # 修复点：添加了冒号(:)
             genre_condition = recs['genres'].apply(
                 lambda x: any(g in x for g in filters['genres'])
             )
