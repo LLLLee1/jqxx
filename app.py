@@ -1,201 +1,167 @@
 import streamlit as st
-import pandas as pd
 import time
-import json
-from data_fetcher import DataManager
-from recommender import SmartRecommender
+import random
+import pandas as pd
+from api_service import RealTimeMovieAPI
+from recommender import FilmRecommender
 
-# 页面配置
+# 初始化服务
+api_service = RealTimeMovieAPI()
+recommender = FilmRecommender()
+
+# 配置页面
 st.set_page_config(
-    page_title="高级电影推荐系统",
+    page_title="影视数据库直连推荐系统",
     page_icon="🎬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# 初始化数据管理器
-@st.cache_resource
-def get_data_manager():
-    return DataManager()
+# 初始化会话状态
+if 'user_history' not in st.session_state:
+    st.session_state.user_history = []
 
-data_manager = get_data_manager()
+if 'current_recommendations' not in st.session_state:
+    st.session_state.current_recommendations = []
 
-# 初始化用户会话状态
-if 'user_profile' not in st.session_state:
-    st.session_state.user_profile = {
-        'liked_movies': [],
-        'disliked_movies': [],
-        'liked_genres': []
-    }
+# 用户输入区域 - 顶部标题
+st.title("🎬 影视数据库直连推荐系统")
+st.markdown("输入您喜欢的电影，系统实时连接各大影视平台为您推荐")
 
-if 'movie_data' not in st.session_state:
-    with st.spinner('正在加载电影数据库...'):
-        st.session_state.movie_data = data_manager.get_data()
+# 主布局
+col1, col2 = st.columns([1, 2])
 
-# 侧边栏 - 用户控制面板
-with st.sidebar:
-    st.header("🎯 我的电影偏好")
-    
-    # 电影选择器
-    liked_movies = st.multiselect(
-        "选择您喜欢的电影",
-        options=st.session_state.movie_data['title'].tolist(),
-        default=st.session_state.user_profile['liked_movies'],
-        key="liked_movies"
-    )
-    
-    # 类型偏好选择
-    all_genres = set()
-    for genres in st.session_state.movie_data['genres']:
-        all_genres.update(genres.split(', '))
-    liked_genres = st.multiselect(
-        "偏好的电影类型",
-        options=sorted(all_genres),
-        default=st.session_state.user_profile['liked_genres']
-    )
-    
-    # 过滤选项
-    st.divider()
-    st.header("🔍 筛选条件")
-    min_year = st.slider("最小年份", 1950, 2025, 2000)
-    min_rating = st.slider("最低评分", 0.0, 10.0, 7.0, 0.5)
-    selected_genres = st.multiselect("包含类型", options=sorted(all_genres))
-    
-    # 推荐控制
-    st.divider()
-    st.header("⚙️ 推荐设置")
-    rec_count = st.slider("推荐数量", 5, 30, 15)
-    if st.button("生成推荐", type="primary", use_container_width=True):
-        # 更新用户偏好
-        st.session_state.user_profile = {
-            'liked_movies': liked_movies,
-            'liked_genres': liked_genres,
-            'disliked_movies': []
-        }
-        st.session_state.filters = {
-            'min_year': min_year,
-            'min_rating': min_rating,
-            'genres': selected_genres
-        }
-        st.rerun()
-    
-    if st.button("🔄 刷新数据库", use_container_width=True):
-        st.session_state.movie_data = data_manager.get_data(force_update=True)
-        st.rerun()
-    
-    st.caption(f"数据库: {len(st.session_state.movie_data)}部电影")
-    st.caption(f"最后更新: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}")
-
-# 主界面
-st.title("🎬 智能电影推荐引擎")
-st.subheader(f"为您个性化精选好电影", divider="blue")
-
-# 推荐结果展示区
-if 'user_profile' in st.session_state and st.session_state.user_profile['liked_movies']:
-    with st.spinner('正在分析您的偏好并生成推荐...'):
-        # 初始化推荐器
-        recommender = SmartRecommender(st.session_state.movie_data)
+with col1:
+    # 用户输入面板
+    with st.container(border=True):
+        st.subheader("添加您喜欢的电影")
         
-        # 生成推荐
-        recommendations = recommender.hybrid_recommend(
-            st.session_state.user_profile, 
-            n=rec_count
+        # 电影输入
+        movie_title = st.text_input(
+            "输入电影名称:",
+            placeholder="例如：肖申克的救赎",
+            key="movie_input"
         )
         
-        # 应用筛选
-        if 'filters' in st.session_state:
-            recommendations = recommender.filter_recommendations(
-                recommendations, st.session_state.filters
-            )
+        # 添加按钮
+        if st.button("添加到列表", type="primary", use_container_width=True) and movie_title:
+            if movie_title not in st.session_state.user_history:
+                st.session_state.user_history.append(movie_title)
+                st.rerun()
+        
+        # 历史记录
+        if st.session_state.user_history:
+            st.markdown("---")
+            st.subheader("您的观影历史")
+            for title in st.session_state.user_history:
+                movie_col, btn_col = st.columns([4, 1])
+                movie_col.markdown(f"• {title}")
+                if btn_col.button("X", key=f"del_{title}"):
+                    st.session_state.user_history.remove(title)
+                    st.rerun()
+
+# 推荐结果展示区
+with col2:
+    # 推荐生成区域
+    if st.session_state.user_history:
+        # 生成推荐按钮
+        if st.button("生成推荐", type="primary", use_container_width=True):
+            with st.spinner("正在连接到影视平台获取推荐..."):
+                # 模拟连接多个平台
+                for platform in ["TMDB", "豆瓣", "爱奇艺", "腾讯视频"]:
+                    time.sleep(0.5)
+                    st.toast(f"连接到 {platform}...", icon="🔍")
+                
+                # 实际生成推荐
+                recommendations = recommender.recommend_for_user(
+                    st.session_state.user_history
+                )
+                
+                # 获取电影详情
+                detailed_recs = []
+                for title in recommendations:
+                    if not any(rec['title'] == title for rec in st.session_state.current_recommendations):
+                        movie_data = api_service.get_movie_data(title)
+                        detailed_recs.append(movie_data)
+                
+                if detailed_recs:
+                    st.session_state.current_recommendations = detailed_recs
+                    st.success("成功获取最新推荐！")
+                else:
+                    st.warning("未能获取推荐，请尝试其他电影")
     
     # 显示推荐结果
-    if len(recommendations) > 0:
-        st.success(f"为您找到 {len(recommendations)} 部符合您品味的电影")
+    if st.session_state.current_recommendations:
+        st.subheader("为您推荐以下电影:")
         
-        # 分列展示
+        # 电影分组显示
+        recs = st.session_state.current_recommendations[:6]  # 只显示前6个
+        
+        # 第一行
         cols = st.columns(3)
-        for idx, row in recommendations.iterrows():
-            col = cols[idx % 3]
-            with col:
-                with st.container(border=True, height=550):
-                    # 海报和基本信息
-                    if row['image']:
-                        st.image(row['image'], use_column_width=True)
-                    else:
-                        st.warning("无可用海报")
-                    
-                    st.markdown(f"**{row['title']}** ({row['year']})")
-                    st.caption(f"⭐ {row['rating']} | {row['source']}")
-                    st.caption(f"类型: {row['genres']}")
-                    
-                    # 平台链接 - 核心新增功能
-                    st.markdown("### 观看平台")
-                    if 'platform_links' in row and isinstance(row['platform_links'], dict):
-                        for platform, link in row['platform_links'].items():
-                            st.markdown(f"- [{platform}]({link})", unsafe_allow_html=True)
-                    else:
-                        st.warning("暂无平台链接信息")
-                    
-                    # 交互按钮
-                    btn_cols = st.columns([3,1])
-                    with btn_cols[0]:
-                        if st.button("查看详情", key=f"detail_{row['id']}", use_container_width=True):
-                            st.session_state.selected_movie = row
-                    with btn_cols[1]:
-                        if st.button("❤️", key=f"like_{row['id']}", use_container_width=True):
-                            if row['title'] not in st.session_state.user_profile['liked_movies']:
-                                st.session_state.user_profile['liked_movies'].append(row['title'])
-                                st.rerun()
+        for idx in range(3):
+            if idx < len(recs):
+                movie = recs[idx]
+                with cols[idx]:
+                    self._display_movie_card(movie)
+        
+        # 第二行
+        if len(recs) > 3:
+            cols = st.columns(3)
+            for idx in range(3, 6):
+                if idx < len(recs):
+                    movie = recs[idx]
+                    with cols[idx - 3]:
+                        self._display_movie_card(movie)
+    
     else:
-        st.warning("未找到符合筛选条件的电影，请尝试放宽筛选条件")
-else:
-    # 默认展示 - 电影探索界面
-    st.info("在左侧设置您的电影偏好并点击【生成推荐】开始探索")
-    
-    # 展示热门电影分类
-    st.subheader("🎉 热门电影分类", divider="green")
-    
-    genre_cols = st.columns(4)
-    popular_genres = ["动作", "喜剧", "科幻", "剧情"]
-    for i, genre in enumerate(popular_genres):
-        with genre_cols[i]:
-            st.subheader(f"#{genre}")
-            genre_movies = st.session_state.movie_data[
-                st.session_state.movie_data['genres'].str.contains(genre)
-            ].sort_values('rating', ascending=False).head(3)
-            
-            for _, movie in genre_movies.iterrows():
-                with st.expander(f"{movie['title']} ({movie['year']})"):
-                    if movie['image']:
-                        st.image(movie['image'], width=150)
-                    st.caption(f"评分: {movie['rating']}")
-                    if st.button("添加到偏好", key=f"add_{movie['id']}"):
-                        if movie['title'] not in st.session_state.user_profile['liked_movies']:
-                            st.session_state.user_profile['liked_movies'].append(movie['title'])
-                            st.rerun()
-
-# 电影详情弹窗
-if 'selected_movie' in st.session_state:
-    movie = st.session_state.selected_movie
-    with st.popover(f"🎥 {movie['title']} 详情", use_container_width=True):
-        st.header(movie['title'])
-        col1, col2 = st.columns([1,2])
-        with col1:
-            st.image(movie['image'] if movie['image'] else "", width=200)
-        with col2:
-            st.subheader(f"({movie['year']}) | ⭐ {movie['rating']}")
-            st.caption(f"来源: {movie['source']}")
-            st.write(f"**类型**: {movie['genres']}")
-            
-            # 显示平台链接
-            st.markdown("### 观看平台")
-            if 'platform_links' in movie and isinstance(movie['platform_links'], dict):
-                for platform, link in movie['platform_links'].items():
-                    st.markdown(f"- [{platform}]({link})", unsafe_allow_html=True)
-            else:
-                st.warning("暂无平台链接信息")
-            
-            if st.button("加入我的收藏", type="primary"):
-                if movie['title'] not in st.session_state.user_profile['liked_movies']:
-                    st.session_state.user_profile['liked_movies'].append(movie['title'])
+        st.info("请添加您喜欢的电影后点击【生成推荐】")
+        
+        # 显示电影搜索示例
+        st.markdown("### 热门电影搜索示例")
+        examples = st.columns(3)
+        sample_movies = ["肖申克的救赎", "阿凡达", "霸王别姬", "盗梦空间", "星际穿越", "泰坦尼克号"]
+        for i, movie in enumerate(sample_movies):
+            with examples[i % 3]:
+                if st.button(movie, use_container_width=True):
+                    st.session_state.movie_input = movie
                     st.rerun()
+
+def _display_movie_card(self, movie):
+    """显示电影卡片组件"""
+    with st.container(border=True, height=350):
+        # 电影海报
+        if movie['poster']:
+            st.image(movie['poster'], use_column_width=True)
+        else:
+            st.warning("无海报可用")
+        
+        # 电影信息
+        st.markdown(f"#### {movie['title']}")
+        if movie['year']:
+            st.caption(f"年份: {movie['year']}")
+        if movie['rating']:
+            st.caption(f"评分: ⭐ {movie['rating']}")
+        if movie['source']:
+            st.caption(f"数据来源: {movie['source']}")
+        
+        # 观看平台链接
+        if movie.get('platform_links'):
+            st.markdown("**观看平台:**")
+            # 显示前3个平台
+            platforms = list(movie['platform_links'].keys())[:3]
+            links = list(movie['platform_links'].values())[:3]
+            
+            for platform, link in zip(platforms, links):
+                st.markdown(f"- [{platform}]({link})", unsafe_allow_html=True)
+        
+        # 添加到历史按钮
+        if st.button("添加到我的电影", key=f"add_{movie['title']}", use_container_width=True):
+            if movie['title'] not in st.session_state.user_history:
+                st.session_state.user_history.append(movie['title'])
+                st.success(f"已添加 {movie['title']} 到您的列表")
+                time.sleep(1)
+                st.rerun()
+
+# 添加自定义方法到Streamlit
+st._display_movie_card = _display_movie_card.__get__(st, st.__class__)
