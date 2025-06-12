@@ -1,81 +1,70 @@
 import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import linear_kernel
-import re
+from sklearn.metrics.pairwise import cosine_similarity
+from collections import defaultdict
 
-class SmartRecommender:
-    def __init__(self, movie_data):
-        self.movies = movie_data
-        self._prepare_features()
-    
-    def _prepare_features(self):
-        """创建增强型特征"""
-        # 合并关键特征
-        self.movies['features'] = (
-            self.movies['title'] + ' ' + 
-            self.movies['genres'] + ' ' +
-            self.movies['year'].astype(str)
-        )
+class FilmRecommender:
+    def __init__(self, user_history=None):
+        self.user_history = user_history if user_history else []
+        self.vectorizer = TfidfVectorizer(stop_words='english')
+        self._build_knowledge_base()
         
-        # 创建TF-IDF矩阵
-        self.tfidf = TfidfVectorizer(stop_words='english')
-        self.tfidf_matrix = self.tfidf.fit_transform(self.movies['features'])
+    def _build_knowledge_base(self):
+        """构建电影知识库（实际应用中连接到大型数据库）"""
+        # 这里简化处理，实际应用应该连接到影视数据库
+        self.movies = pd.DataFrame([
+            {'title': '肖申克的救赎', 'genres': '剧情,犯罪', 'keywords': '监狱,希望,自由'},
+            {'title': '阿凡达', 'genres': '动作,科幻,冒险', 'keywords': '外星人,特效,3D'},
+            {'title': '泰坦尼克号', 'genres': '剧情,爱情,灾难', 'keywords': '海洋,爱情,沉船'},
+            {'title': '盗梦空间', 'genres': '科幻,悬疑,冒险', 'keywords': '梦境,时间,多层'},
+            {'title': '星际穿越', 'genres': '科幻,冒险,剧情', 'keywords': '太空,时间,亲情'},
+            {'title': '霸王别姬', 'genres': '剧情,爱情,历史', 'keywords': '京剧,同性,时代变迁'},
+            {'title': '这个杀手不太冷', 'genres': '剧情,动作,犯罪', 'keywords': '杀手,女孩,复仇'},
+            {'title': '千与千寻', 'genres': '动画,奇幻,冒险', 'keywords': '日本,神隐,成长'},
+            {'title': '楚门的世界', 'genres': '剧情,科幻', 'keywords': '真人秀,虚假,自由'}
+        ])
         
-        # 计算相似度矩阵
-        self.cosine_sim = linear_kernel(self.tfidf_matrix, self.tfidf_matrix)
+        # 提取特征
+        self.movies['features'] = self.movies['genres'] + ' ' + self.movies['keywords']
+        
+        # 训练向量模型
+        self.tfidf_matrix = self.vectorizer.fit_transform(self.movies['features'])
+        self.cosine_sim = cosine_similarity(self.tfidf_matrix, self.tfidf_matrix)
+        self.idx_mapping = {title: idx for idx, title in enumerate(self.movies['title'])}
     
-    def get_direct_recommendations(self, movie_title, n=5):
-        """基于内容直接推荐"""
-        idx = self.movies.index[self.movies['title'] == movie_title].tolist()[0]
+    def recommend_for_movie(self, title, top_n=5):
+        """为单部电影推荐类似影片"""
+        if title not in self.idx_mapping:
+            # 如果未知电影，返回通用推荐
+            return self.movies.sample(top_n)['title'].tolist()
+        
+        idx = self.idx_mapping[title]
         sim_scores = list(enumerate(self.cosine_sim[idx]))
         sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
-        sim_indexes = [i[0] for i in sim_scores[1:n+1]]
-        return self.movies.iloc[sim_indexes]
+        sim_indexes = [i[0] for i in sim_scores[1:top_n+1]]
+        return self.movies.iloc[sim_indexes]['title'].tolist()
     
-    def hybrid_recommend(self, preferences, n=10):
-        """混合推荐算法 - 语法错误修复点"""
-        # 修复点：添加了缺少的冒号(:)
-        recommendations = pd.DataFrame()
+    def recommend_for_user(self, titles, top_n=10):
+        """基于用户观看历史推荐"""
+        recommendations = defaultdict(float)
         
-        # 类型偏好加权
-        for genre_weight in [0.7, 1.0, 1.3]:  # 不同权重尝试
-            genre_recs = self.movies.copy()
-            for genre in preferences['liked_genres']:
-                # 修复点：添加了必要的冒号(:)
-                genre_recs['genre_match'] = genre_recs['genres'].apply(
-                    lambda x: 1 if genre in x else 0
-                )
-                genre_recs['weight'] += genre_weight * genre_recs['genre_match']
-            
-            recommendations = pd.concat([recommendations, genre_recs.sort_values('weight', ascending=False).head(n//3)])
+        # 为每部观看的电影获取推荐
+        for title in titles:
+            similar = self.recommend_for_movie(title, top_n=8)
+            for similar_title in similar:
+                recommendations[similar_title] += 1.0
+                
+            # 在推荐中加入一些随机性
+            random_recs = self.movies.sample(3)['title'].tolist()
+            for random_title in random_recs:
+                recommendations[random_title] += 0.3
         
-        # 直接推荐合并
-        for movie in preferences['liked_movies']:
-            if movie in self.movies['title'].values:
-                recs = self.get_direct_recommendations(movie, n//3)
-                recommendations = pd.concat([recommendations, recs])
-        
-        # 去重和排序
-        recommendations = recommendations.drop_duplicates('id')
-        recommendations = recommendations.sort_values(
-            ['weight', 'rating'], ascending=[False, False]
-        ).head(n)
-        
-        return recommendations
-    
-    def filter_recommendations(self, recs, filters):
-        """应用用户过滤器 - 修复点：添加了必要的冒号(:)"""
-        # 年份过滤
-        if filters['min_year']:  # 修复点：添加了冒号(:)
-            recs = recs[recs['year'].astype(int) >= int(filters['min_year'])]
-        # 评分过滤
-        if filters['min_rating']:  # 修复点：添加了冒号(:)
-            recs = recs[recs['rating'] >= float(filters['min_rating'])]
-        # 类型过滤
-        if filters['genres']:  # 修复点：添加了冒号(:)
-            genre_condition = recs['genres'].apply(
-                lambda x: any(g in x for g in filters['genres'])
-            )
-            recs = recs[genre_condition]
-        return recs
+        # 排除用户已经看过的
+        for title in titles:
+            if title in recommendations:
+                del recommendations[title]
+                
+        # 按权重排序
+        sorted_recs = sorted(recommendations.items(), key=lambda x: x[1], reverse=True)
+        return [title for title, score in sorted_recs[:top_n]]
