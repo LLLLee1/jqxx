@@ -71,4 +71,9 @@ class SmartRecommender:
         if filters['min_rating']:
             recs = recs[recs['rating'] >= float(filters['min_rating'])]
         # 类型过滤
-        if filter
+        if filters['genres']:
+            genre_condition = recs['genres'].apply(
+                lambda x: any(g in x for g in filters['genres'])
+            )
+            recs = recs[genre_condition]
+        return recs
