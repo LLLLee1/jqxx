@@ -17,15 +17,28 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# 初始化会话状态
+# 安全的 session_state 初始化
 if 'user_history' not in st.session_state:
     st.session_state.user_history = []
 
 if 'current_recommendations' not in st.session_state:
     st.session_state.current_recommendations = []
 
-if 'movie_input' not in st.session_state:
-    st.session_state.movie_input = ""
+# 创建独立的状态管理
+class AppState:
+    def __init__(self):
+        self._movie_input = ""
+    
+    @property
+    def movie_input(self):
+        return self._movie_input
+    
+    @movie_input.setter
+    def movie_input(self, value):
+        self._movie_input = value
+
+# 初始化应用状态
+app_state = AppState()
 
 # 用户输入区域 - 顶部标题
 st.title("🎬 影视数据库直连推荐系统")
@@ -39,38 +52,33 @@ with col1:
     with st.container(border=True):
         st.subheader("添加您喜欢的电影")
         
-        # 电影输入 - 使用安全的session_state访问方式
+        # 电影输入 - 使用安全的输入处理
         movie_title = st.text_input(
             "输入电影名称:",
             placeholder="例如：肖申克的救赎",
-            value=st.session_state.movie_input,
-            key="new_movie_input"
+            key="movie_input_field"
         )
         
-        # 添加按钮
+        # 更新应用状态
+        if movie_title:
+            app_state.movie_input = movie_title.strip()
+        
+        # 添加按钮 - 正确处理状态
         if st.button("添加到列表", type="primary", use_container_width=True):
-            if movie_title and movie_title.strip():
-                # 更新session_state的正确方式
-                st.session_state.movie_input = movie_title.strip()
-                
-                # 添加到历史记录
-                if st.session_state.movie_input not in st.session_state.user_history:
-                    st.session_state.user_history.append(st.session_state.movie_input)
-                    
-                    # 重置输入框
-                    st.session_state.new_movie_input = ""
-                    st.rerun()
+            if app_state.movie_input and app_state.movie_input not in st.session_state.user_history:
+                st.session_state.user_history.append(app_state.movie_input)
+                app_state.movie_input = ""  # 清空输入
+                st.session_state.movie_input_field = ""  # 清空UI输入框
         
         # 历史记录
         if st.session_state.user_history:
             st.markdown("---")
             st.subheader("您的观影历史")
-            for idx, title in enumerate(st.session_state.user_history):
+            for title in st.session_state.user_history:
                 movie_col, btn_col = st.columns([4, 1])
                 movie_col.markdown(f"• {title}")
-                if btn_col.button("X", key=f"del_{idx}"):
+                if btn_col.button("X", key=f"del_{title}"):
                     st.session_state.user_history.remove(title)
-                    st.rerun()
 
 # 推荐结果展示区
 with col2:
@@ -92,10 +100,9 @@ with col2:
                 # 获取电影详情
                 detailed_recs = []
                 for title in recommendations:
-                    # 确保不添加重复的推荐
                     if not any(rec.get('title') == title for rec in st.session_state.current_recommendations):
                         movie_data = api_service.get_movie_data(title)
-                        if movie_data:  # 确保数据获取成功
+                        if movie_data:
                             detailed_recs.append(movie_data)
                 
                 # 更新推荐列表
@@ -133,21 +140,21 @@ with col2:
     else:
         st.info("请添加您喜欢的电影后点击【生成推荐】")
         
-        # 显示电影搜索示例 - 使用安全的回调函数
+        # 显示电影搜索示例
         st.markdown("### 热门电影搜索示例")
         examples = st.columns(3)
         sample_movies = ["肖申克的救赎", "阿凡达", "霸王别姬", "盗梦空间", "星际穿越", "泰坦尼克号"]
-        for i, movie_title in enumerate(sample_movies):
+        for i, movie in enumerate(sample_movies):
             with examples[i % 3]:
-                # 使用回调函数安全设置输入
-                if st.button(movie_title, 
-                           use_container_width=True, 
-                           key=f"sample_{i}",
-                           on_click=lambda m=movie_title: set_movie_input(m)):
-                    pass
+                # 安全设置输入框值
+                if st.button(movie, 
+                            key=f"sample_{i}",
+                            use_container_width=True):
+                    # 直接设置输入字段，避免session state操作
+                    st.session_state.movie_input_field = movie
 
 def display_movie_card(movie):
-    """显示电影卡片组件"""
+    """显示电影卡片组件（安全版本）"""
     with st.container(border=True, height=350):
         # 电影海报
         if movie.get('poster'):
@@ -176,16 +183,10 @@ def display_movie_card(movie):
         
         # 添加到历史按钮
         if st.button("添加到我的电影", 
-                   key=f"add_{movie.get('title', 'unknown')}", 
-                   use_container_width=True,
-                   on_click=lambda t=movie.get('title', '未知电影'): add_to_history(t)):
-            pass
-
-def add_to_history(movie_title):
-    """安全地添加到历史记录"""
-    if movie_title and movie_title not in st.session_state.user_history:
-        st.session_state.user_history.append(movie_title)
-
-def set_movie_input(movie_title):
-    """安全地设置输入值"""
-    st.session_state.new_movie_input = movie_title
+                    key=f"add_{movie.get('title', 'unknown')}", 
+                    use_container_width=True,
+                    use_container_width=True):
+            title = movie.get('title')
+            if title and title not in st.session_state.user_history:
+                st.session_state.user_history.append(title)
+                st.success(f"已添加 {title} 到我的电影")
